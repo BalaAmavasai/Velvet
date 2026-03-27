@@ -1,0 +1,1757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velvet</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1e1e2e; color: #cdd6f4; font-family: 'Courier New', monospace; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #editor-container { display: flex; flex: 1; overflow: hidden; }
+  #line-numbers { background: #181825; color: #585b70; padding: 4px 8px 4px 4px; text-align: right; user-select: none; min-width: 48px; overflow: hidden; white-space: pre; line-height: 1.5; }
+  #editor { flex: 1; position: relative; overflow: auto; background: #1e1e2e; }
+  #code { white-space: pre; line-height: 1.5; padding: 4px 8px; outline: none; min-height: 100%; caret-color: transparent; }
+  .cursor-line { background: #2a2a3e; }
+  #cursor { position: absolute; background: #cdd6f4; opacity: 0.8; pointer-events: none; z-index: 10; transition: none; }
+  .mode-insert #cursor { width: 2px !important; opacity: 1; }
+  .mode-replace #cursor { background: #f38ba8; opacity: 0.8; }
+  #statusline { background: #313244; color: #cdd6f4; padding: 2px 8px; display: flex; justify-content: space-between; font-size: 13px; border-top: 1px solid #45475a; flex-shrink: 0; }
+  #mode-indicator { font-weight: bold; padding: 0 8px; border-radius: 3px; }
+  .mode-NORMAL #mode-indicator { background: #89b4fa; color: #1e1e2e; }
+  .mode-INSERT #mode-indicator { background: #a6e3a1; color: #1e1e2e; }
+  .mode-VISUAL #mode-indicator, .mode-V-LINE #mode-indicator, .mode-V-BLOCK #mode-indicator { background: #cba6f7; color: #1e1e2e; }
+  .mode-COMMAND #mode-indicator { background: #f38ba8; color: #1e1e2e; }
+  .mode-REPLACE #mode-indicator { background: #f38ba8; color: #1e1e2e; }
+  #cmdline-container { background: #181825; border-top: 1px solid #45475a; flex-shrink: 0; }
+  #cmdline { padding: 2px 8px; font-family: 'Courier New', monospace; font-size: 14px; color: #cdd6f4; display: none; }
+  .visual-sel { background: #45475a; }
+  /* Syntax highlighting */
+  .kw { color: #cba6f7; }
+  .str { color: #a6e3a1; }
+  .num { color: #fab387; }
+  .cmt { color: #585b70; font-style: italic; }
+  .fn { color: #89b4fa; }
+  .op { color: #89dceb; }
+  .type { color: #f9e2af; }
+  .punct { color: #94e2d5; }
+  /* Tabs */
+  #tabline { background: #181825; display: flex; border-bottom: 1px solid #45475a; flex-shrink: 0; overflow-x: auto; }
+  .tab { padding: 3px 16px; cursor: pointer; border-right: 1px solid #45475a; color: #585b70; font-size: 13px; white-space: nowrap; }
+  .tab.active { color: #cdd6f4; background: #1e1e2e; border-bottom: 2px solid #89b4fa; }
+  .tab:hover:not(.active) { color: #cdd6f4; }
+  #search-highlight { position: absolute; pointer-events: none; z-index: 5; }
+  .search-match { background: rgba(249, 226, 175, 0.3); outline: 1px solid #f9e2af; }
+  .search-match-current { background: rgba(249, 226, 175, 0.6); outline: 1px solid #f9e2af; }
+</style>
+</head>
+<body>
+<div id="tabline"></div>
+<div id="editor-container">
+  <div id="line-numbers"></div>
+  <div id="editor">
+    <div id="code" tabindex="0" spellcheck="false"></div>
+    <div id="cursor"></div>
+  </div>
+</div>
+<div id="statusline">
+  <span><span id="mode-indicator">NORMAL</span> <span id="filename">scratch.js</span><span id="modified-indicator"></span></span>
+  <span id="status-right"><span id="search-info"></span> &nbsp; <span id="position-info">1:1</span></span>
+</div>
+<div id="cmdline-container"><div id="cmdline"></div></div>
+
+<script>
+// ============================================================
+// Velvet - A browser-based Vim editor
+// ============================================================
+
+const KEYWORDS = {
+  js: /\b(break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)\b/g,
+  js_types: /\b(undefined|null|true|false|NaN|Infinity|Array|Object|String|Number|Boolean|Symbol|BigInt|Map|Set|Promise|Error|RegExp|Date|Math|JSON|console|window|document|navigator|fetch|setTimeout|setInterval|clearTimeout|clearInterval|requestAnimationFrame)\b/g,
+};
+
+// ============================================================
+// State
+// ============================================================
+const state = {
+  buffers: [],
+  activeBuffer: 0,
+  mode: 'NORMAL',
+  pendingOp: null,    // pending operator: 'd','c','y'
+  pendingCount: '',   // numeric prefix
+  register: { '"': '' }, // named registers
+  activeReg: '"',
+  search: { pattern: '', matches: [], current: 0, direction: 1 },
+  cmdHistory: [],
+  cmdHistIdx: -1,
+  macros: {},
+  recordingMacro: null,
+  lastCmd: null,      // for '.' repeat
+  undoHistory: [],    // per buffer
+  redoHistory: [],
+  marks: {},
+  showLineNumbers: true,
+  relativeLine: false,
+  syntaxOn: true,
+  tabSize: 2,
+  expandTab: true,
+  message: '',
+  visualStart: null,
+  visualMode: 'char', // char | line | block
+};
+
+function buf() { return state.buffers[state.activeBuffer]; }
+
+function createBuffer(name = 'scratch.js', content = '') {
+  return {
+    name,
+    lines: content ? content.split('\n') : [''],
+    cursor: { row: 0, col: 0 },
+    modified: false,
+    undoStack: [],
+    redoStack: [],
+    scroll: { top: 0, left: 0 },
+    fileHandle: null, // File System Access API handle
+  };
+}
+
+// ============================================================
+// File I/O
+// ============================================================
+async function saveBuffer(b, saveAs = false) {
+  const content = b.lines.join('\n');
+
+  // File System Access API (Chrome/Edge)
+  if (window.showSaveFilePicker) {
+    try {
+      if (!b.fileHandle || saveAs) {
+        const ext = b.name.split('.').pop() || 'txt';
+        b.fileHandle = await window.showSaveFilePicker({
+          suggestedName: b.name,
+          types: [{ description: 'Text files', accept: { 'text/plain': [`.${ext}`, '.txt', '.js', '.ts', '.py', '.html', '.css', '.json', '.md'] } }],
+        });
+        b.name = b.fileHandle.name;
+      }
+      const writable = await b.fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      b.modified = false;
+      showMessage(`"${b.name}" written (${b.lines.length}L)`);
+      return true;
+    } catch (err) {
+      if (err.name !== 'AbortError') showMessage(`Save failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  // Fallback: trigger download
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = b.name;
+  a.click();
+  URL.revokeObjectURL(url);
+  b.modified = false;
+  showMessage(`"${b.name}" downloaded (${b.lines.length}L)`);
+  return true;
+}
+
+async function openFile() {
+  // File System Access API
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: 'Text files', accept: { 'text/*': ['.js', '.ts', '.py', '.html', '.css', '.json', '.md', '.txt', '.sh', '.yaml', '.toml', '.rs', '.go', '.java', '.c', '.cpp', '.h'] } }],
+      });
+      const file = await handle.getFile();
+      const content = await file.text();
+      const newBuf = createBuffer(file.name, content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+      newBuf.fileHandle = handle;
+      // Reuse existing buffer with same name, or add new
+      const existing = state.buffers.findIndex(b => b.name === file.name);
+      if (existing >= 0) {
+        state.buffers[existing] = newBuf;
+        state.activeBuffer = existing;
+      } else {
+        state.buffers.push(newBuf);
+        state.activeBuffer = state.buffers.length - 1;
+      }
+      showMessage(`"${file.name}" loaded (${newBuf.lines.length}L)`);
+      render();
+    } catch (err) {
+      if (err.name !== 'AbortError') showMessage(`Open failed: ${err.message}`);
+    }
+    return;
+  }
+
+  // Fallback: hidden file input
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.js,.ts,.py,.html,.css,.json,.md,.txt,.sh,.yaml,.toml,.rs,.go,.java,.c,.cpp,.h,text/*';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const content = await file.text();
+    const newBuf = createBuffer(file.name, content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+    const existing = state.buffers.findIndex(b => b.name === file.name);
+    if (existing >= 0) { state.buffers[existing] = newBuf; state.activeBuffer = existing; }
+    else { state.buffers.push(newBuf); state.activeBuffer = state.buffers.length - 1; }
+    showMessage(`"${file.name}" loaded (${newBuf.lines.length}L)`);
+    render();
+  };
+  input.click();
+}
+
+// ============================================================
+// Initialize with demo content
+// ============================================================
+const demoContent = `// Vim Element Layout View Editor Tool (Velvet)
+// -------------------------------------------
+// Try: hjkl to move, i to insert, Esc to normal mode
+// /, n, N to search | :set number | dd, yy, p | u to undo
+// Full documentation available in velvet-docs.html
+
+function fibonacci(n) {
+  if (n <= 1) return n;
+  let a = 0, b = 1;
+  for (let i = 2; i <= n; i++) {
+    [a, b] = [b, a + b];
+  }
+  return b;
+}
+
+class Stack {
+  constructor() {
+    this.items = [];
+  }
+
+  push(item) { this.items.push(item); }
+  pop() { return this.items.pop(); }
+  peek() { return this.items[this.items.length - 1]; }
+  get size() { return this.items.length; }
+  isEmpty() { return this.items.length === 0; }
+}
+
+const primes = Array.from({ length: 20 }, (_, i) => i + 2)
+  .filter(n => {
+    for (let i = 2; i <= Math.sqrt(n); i++) {
+      if (n % i === 0) return false;
+    }
+    return true;
+  });
+
+// Async example
+async function fetchData(url) {
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed:', error.message);
+    throw error;
+  }
+}
+
+export { fibonacci, Stack, primes, fetchData };
+`;
+
+state.buffers.push(createBuffer('demo.js', demoContent.trimEnd()));
+state.buffers.push(createBuffer('scratch.js', ''));
+
+// ============================================================
+// DOM
+// ============================================================
+const $code = document.getElementById('code');
+const $cursor = document.getElementById('cursor');
+const $lineNums = document.getElementById('line-numbers');
+const $statusLine = document.getElementById('statusline');
+const $modeInd = document.getElementById('mode-indicator');
+const $filename = document.getElementById('filename');
+const $modInd = document.getElementById('modified-indicator');
+const $posInfo = document.getElementById('position-info');
+const $cmdline = document.getElementById('cmdline');
+const $tabline = document.getElementById('tabline');
+const $searchInfo = document.getElementById('search-info');
+const $editor = document.getElementById('editor');
+
+// ============================================================
+// Syntax Highlighting
+// ============================================================
+function highlightLine(line) {
+  if (!state.syntaxOn) return escHtml(line);
+  let result = '';
+  let i = 0;
+  const txt = line;
+
+  // Simple stateful single-line highlighter for JS-like syntax
+  while (i < txt.length) {
+    // Single-line comment
+    if (txt[i] === '/' && txt[i+1] === '/') {
+      result += `<span class="cmt">${escHtml(txt.slice(i))}</span>`;
+      break;
+    }
+    // String (double/single/template)
+    if (txt[i] === '"' || txt[i] === "'" || txt[i] === '`') {
+      const q = txt[i];
+      let j = i + 1;
+      while (j < txt.length) {
+        if (txt[j] === '\\') { j += 2; continue; }
+        if (txt[j] === q) { j++; break; }
+        j++;
+      }
+      result += `<span class="str">${escHtml(txt.slice(i, j))}</span>`;
+      i = j; continue;
+    }
+    // Number
+    if (/[0-9]/.test(txt[i]) && (i === 0 || /\W/.test(txt[i-1]))) {
+      let j = i;
+      while (j < txt.length && /[0-9.xXa-fA-F_n]/.test(txt[j])) j++;
+      result += `<span class="num">${escHtml(txt.slice(i, j))}</span>`;
+      i = j; continue;
+    }
+    // Word boundary
+    if (/[a-zA-Z_$]/.test(txt[i])) {
+      let j = i;
+      while (j < txt.length && /[a-zA-Z0-9_$]/.test(txt[j])) j++;
+      const word = txt.slice(i, j);
+      const isFunc = txt[j] === '(';
+      const kwMatch = /^(break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await)$/.test(word);
+      const typeMatch = /^(undefined|null|true|false|NaN|Infinity|Array|Object|String|Number|Boolean|Symbol|BigInt|Map|Set|Promise|Error|RegExp|Date|Math|JSON|console|window|document)$/.test(word);
+      if (kwMatch) result += `<span class="kw">${escHtml(word)}</span>`;
+      else if (typeMatch) result += `<span class="type">${escHtml(word)}</span>`;
+      else if (isFunc) result += `<span class="fn">${escHtml(word)}</span>`;
+      else result += escHtml(word);
+      i = j; continue;
+    }
+    // Operators
+    if (/[+\-*/%=<>!&|^~?:]/.test(txt[i])) {
+      result += `<span class="op">${escHtml(txt[i])}</span>`;
+      i++; continue;
+    }
+    // Punctuation
+    if (/[{}()\[\];,.]/.test(txt[i])) {
+      result += `<span class="punct">${escHtml(txt[i])}</span>`;
+      i++; continue;
+    }
+    result += escHtml(txt[i]);
+    i++;
+  }
+  return result;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  const b = buf();
+  const lines = b.lines;
+
+  // Build highlighted HTML
+  let html = '';
+  for (let i = 0; i < lines.length; i++) {
+    html += `<span id="L${i}" class="line">${highlightLine(lines[i])}</span>\n`;
+  }
+  // Remove trailing \n span issue
+  $code.innerHTML = html;
+
+  renderLineNumbers(lines.length);
+  updateCursor();
+  updateStatus();
+  updateTabline();
+  if (state.search.pattern) renderSearchHighlights();
+  renderVisualSelection();
+  scrollIntoView();
+}
+
+function renderLineNumbers(count) {
+  if (!state.showLineNumbers) { $lineNums.style.display = 'none'; return; }
+  $lineNums.style.display = 'block';
+  const b = buf();
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    let n;
+    if (state.relativeLine && i !== b.cursor.row) {
+      n = Math.abs(i - b.cursor.row);
+    } else {
+      n = i + 1;
+    }
+    html += n + '\n';
+  }
+  $lineNums.textContent = html;
+}
+
+function getCharDimensions() {
+  // Measure a character in the code element
+  const span = document.createElement('span');
+  span.style.visibility = 'hidden';
+  span.style.position = 'absolute';
+  span.textContent = 'M';
+  $code.appendChild(span);
+  const rect = span.getBoundingClientRect();
+  $code.removeChild(span);
+  return { w: rect.width, h: rect.height };
+}
+
+let charW = 0, charH = 0;
+function ensureCharDims() {
+  if (!charW) {
+    const d = getCharDimensions();
+    charW = d.w; charH = d.h;
+  }
+}
+
+function updateCursor() {
+  ensureCharDims();
+  const b = buf();
+  const { row, col } = b.cursor;
+  const lineEl = document.getElementById(`L${row}`);
+  if (!lineEl) return;
+
+  const lineRect = lineEl.getBoundingClientRect();
+  const editorRect = $editor.getBoundingClientRect();
+
+  // Calculate position using char dimensions
+  const lineText = b.lines[row] || '';
+  // Measure text up to col
+  const span = document.createElement('span');
+  span.style.visibility = 'hidden';
+  span.style.position = 'absolute';
+  span.style.whiteSpace = 'pre';
+  span.textContent = lineText.slice(0, col);
+  $code.appendChild(span);
+  const textWidth = span.getBoundingClientRect().width;
+  $code.removeChild(span);
+
+  const top = lineRect.top - editorRect.top + $editor.scrollTop;
+  const left = lineRect.left - editorRect.left + $editor.scrollLeft + textWidth;
+
+  $cursor.style.top = top + 'px';
+  $cursor.style.left = left + 'px';
+  $cursor.style.width = (state.mode === 'INSERT' ? 2 : charW) + 'px';
+  $cursor.style.height = charH + 'px';
+  $cursor.style.display = 'block';
+
+  // Highlight cursor line
+  document.querySelectorAll('.cursor-line').forEach(el => el.classList.remove('cursor-line'));
+  lineEl.classList.add('cursor-line');
+}
+
+function renderSearchHighlights() {
+  // Remove old highlights
+  document.querySelectorAll('.search-match, .search-match-current').forEach(el => {
+    const parent = el.parentNode;
+    parent.replaceChild(document.createTextNode(el.textContent), el);
+    parent.normalize();
+  });
+  // We'll handle this via a different approach - overlay
+}
+
+function renderVisualSelection() {
+  // Remove old visual highlights
+  document.querySelectorAll('.visual-sel').forEach(el => el.classList.remove('visual-sel'));
+  if (state.mode !== 'VISUAL' && state.mode !== 'V-LINE' && state.mode !== 'V-BLOCK') return;
+
+  const b = buf();
+  const vs = state.visualStart;
+  if (!vs) return;
+
+  let startRow = Math.min(vs.row, b.cursor.row);
+  let endRow = Math.max(vs.row, b.cursor.row);
+
+  for (let r = startRow; r <= endRow; r++) {
+    const lineEl = document.getElementById(`L${r}`);
+    if (lineEl) lineEl.classList.add('visual-sel');
+  }
+}
+
+function updateStatus() {
+  const b = buf();
+  $modeInd.textContent = state.mode;
+  $filename.textContent = b.name;
+  $modInd.textContent = b.modified ? ' [+]' : '';
+  $posInfo.textContent = `${b.cursor.row + 1}:${b.cursor.col + 1}`;
+  $searchInfo.textContent = state.search.pattern ? `/${state.search.pattern}` : '';
+
+  // Update body class for mode styling
+  document.body.className = `mode-${state.mode.replace(/[^A-Z]/g,'').slice(0,6) || 'NORMAL'}`;
+  $statusLine.className = `mode-${state.mode}`;
+}
+
+function updateTabline() {
+  $tabline.innerHTML = state.buffers.map((b, i) =>
+    `<div class="tab ${i === state.activeBuffer ? 'active' : ''}" data-idx="${i}">${b.name}${b.modified ? ' +' : ''}</div>`
+  ).join('');
+  $tabline.querySelectorAll('.tab').forEach(el => {
+    el.addEventListener('click', () => { switchBuffer(+el.dataset.idx); });
+  });
+}
+
+function scrollIntoView() {
+  const b = buf();
+  const lineEl = document.getElementById(`L${b.cursor.row}`);
+  if (!lineEl) return;
+  lineEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function showMessage(msg, timeout = 2500) {
+  state.message = msg;
+  $cmdline.style.display = 'block';
+  $cmdline.textContent = msg;
+  if (timeout > 0) setTimeout(() => {
+    if ($cmdline.textContent === msg) {
+      $cmdline.style.display = 'none';
+      $cmdline.textContent = '';
+    }
+  }, timeout);
+}
+
+// ============================================================
+// Buffer / cursor helpers
+// ============================================================
+function clampCursor(b, inInsert = false) {
+  b.cursor.row = Math.max(0, Math.min(b.cursor.row, b.lines.length - 1));
+  const lineLen = b.lines[b.cursor.row].length;
+  const maxCol = inInsert ? lineLen : Math.max(0, lineLen - 1);
+  b.cursor.col = Math.max(0, Math.min(b.cursor.col, maxCol));
+}
+
+function saveUndo() {
+  const b = buf();
+  b.undoStack.push({ lines: b.lines.map(l => l), cursor: { ...b.cursor } });
+  b.redoStack = [];
+  if (b.undoStack.length > 200) b.undoStack.shift();
+}
+
+function undo() {
+  const b = buf();
+  if (!b.undoStack.length) { showMessage('Already at oldest change'); return; }
+  b.redoStack.push({ lines: b.lines.map(l => l), cursor: { ...b.cursor } });
+  const snap = b.undoStack.pop();
+  b.lines = snap.lines;
+  b.cursor = snap.cursor;
+  b.modified = true;
+}
+
+function redo() {
+  const b = buf();
+  if (!b.redoStack.length) { showMessage('Already at newest change'); return; }
+  b.undoStack.push({ lines: b.lines.map(l => l), cursor: { ...b.cursor } });
+  const snap = b.redoStack.pop();
+  b.lines = snap.lines;
+  b.cursor = snap.cursor;
+  b.modified = true;
+}
+
+function switchBuffer(idx) {
+  if (idx < 0 || idx >= state.buffers.length) return;
+  state.activeBuffer = idx;
+  setMode('NORMAL');
+  render();
+}
+
+// ============================================================
+// Motion primitives
+// ============================================================
+function moveH(b, delta) {
+  b.cursor.col = Math.max(0, Math.min(b.cursor.col + delta, Math.max(0, b.lines[b.cursor.row].length - 1)));
+}
+function moveV(b, delta) {
+  b.cursor.row = Math.max(0, Math.min(b.cursor.row + delta, b.lines.length - 1));
+  clampCursor(b);
+}
+
+function wordForward(b, big = false) {
+  const lines = b.lines;
+  let { row, col } = b.cursor;
+  const line = lines[row];
+  const isWord = big ? (c => c !== ' ' && c !== '\t') : (c => /\w/.test(c));
+  let pos = col;
+
+  if (pos < line.length) {
+    const inWord = isWord(line[pos]);
+    while (pos < line.length && isWord(line[pos]) === inWord) pos++;
+    while (pos < line.length && (line[pos] === ' ' || line[pos] === '\t')) pos++;
+    if (pos < line.length) { b.cursor.col = pos; return; }
+  }
+  // Next line
+  if (row + 1 < lines.length) {
+    b.cursor.row = row + 1;
+    b.cursor.col = 0;
+    const nl = lines[b.cursor.row];
+    let p = 0;
+    while (p < nl.length && (nl[p] === ' ' || nl[p] === '\t')) p++;
+    if (p < nl.length) b.cursor.col = p;
+  }
+}
+
+function wordBack(b, big = false) {
+  let { row, col } = b.cursor;
+  const lines = b.lines;
+  const isWord = big ? (c => c !== ' ' && c !== '\t') : (c => /\w/.test(c));
+
+  if (col > 0) {
+    let pos = col - 1;
+    const line = lines[row];
+    while (pos > 0 && (line[pos] === ' ' || line[pos] === '\t')) pos--;
+    const inWord = isWord(line[pos]);
+    while (pos > 0 && isWord(line[pos - 1]) === inWord) pos--;
+    b.cursor.col = pos;
+    return;
+  }
+  if (row > 0) {
+    b.cursor.row = row - 1;
+    b.cursor.col = Math.max(0, lines[b.cursor.row].length - 1);
+  }
+}
+
+function wordEnd(b) {
+  let { row, col } = b.cursor;
+  const lines = b.lines;
+  const line = lines[row];
+  let pos = col + 1;
+  while (pos < line.length && (line[pos] === ' ' || line[pos] === '\t')) pos++;
+  if (pos < line.length) {
+    const inWord = /\w/.test(line[pos]);
+    while (pos + 1 < line.length && /\w/.test(line[pos + 1]) === inWord) pos++;
+    b.cursor.col = pos;
+  }
+}
+
+function findChar(b, ch, forward = true, till = false) {
+  const line = b.lines[b.cursor.row];
+  let pos = b.cursor.col;
+  if (forward) {
+    pos++;
+    while (pos < line.length) {
+      if (line[pos] === ch) { b.cursor.col = till ? pos - 1 : pos; return true; }
+      pos++;
+    }
+  } else {
+    pos--;
+    while (pos >= 0) {
+      if (line[pos] === ch) { b.cursor.col = till ? pos + 1 : pos; return true; }
+      pos--;
+    }
+  }
+  return false;
+}
+
+function lineStart(b) { b.cursor.col = 0; }
+function lineEnd(b) { b.cursor.col = Math.max(0, b.lines[b.cursor.row].length - 1); }
+function lineFirstNonBlank(b) {
+  const line = b.lines[b.cursor.row];
+  let i = 0;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+  b.cursor.col = i;
+}
+
+function gotoLine(b, n) {
+  b.cursor.row = Math.max(0, Math.min(n - 1, b.lines.length - 1));
+  clampCursor(b);
+}
+
+function matchingBracket(b) {
+  const pairs = { '(': ')', '[': ']', '{': '}', ')': '(', ']': '[', '}': '{' };
+  const line = b.lines[b.cursor.row];
+  const ch = line[b.cursor.col];
+  if (!pairs[ch]) return;
+  const forward = '([{'.includes(ch);
+  const target = pairs[ch];
+  let depth = 0;
+  const lines = b.lines;
+  let row = b.cursor.row, col = b.cursor.col;
+
+  if (forward) {
+    for (let r = row; r < lines.length; r++) {
+      const l = lines[r];
+      const start = r === row ? col : 0;
+      for (let c = start; c < l.length; c++) {
+        if (l[c] === ch) depth++;
+        else if (l[c] === target) { depth--; if (depth === 0) { b.cursor.row = r; b.cursor.col = c; return; } }
+      }
+    }
+  } else {
+    for (let r = row; r >= 0; r--) {
+      const l = lines[r];
+      const end = r === row ? col : l.length - 1;
+      for (let c = end; c >= 0; c--) {
+        if (l[c] === ch) depth++;
+        else if (l[c] === target) { depth--; if (depth === 0) { b.cursor.row = r; b.cursor.col = c; return; } }
+      }
+    }
+  }
+}
+
+// ============================================================
+// Text objects
+// ============================================================
+function getTextObject(b, obj, inner) {
+  const line = b.lines[b.cursor.row];
+  const col = b.cursor.col;
+
+  if (obj === 'w') {
+    // word
+    let start = col, end = col;
+    while (start > 0 && /\w/.test(line[start - 1])) start--;
+    while (end < line.length && /\w/.test(line[end])) end++;
+    if (!inner) {
+      while (end < line.length && line[end] === ' ') end++;
+    }
+    return { row: b.cursor.row, startCol: start, endCol: end };
+  }
+
+  const pairs = { '(': ['(', ')'], ')': ['(', ')'], '[': ['[', ']'], ']': ['[', ']'], '{': ['{', '}'], '}': ['{', '}'], "'": ["'", "'"], '"': ['"', '"'], '`': ['`', '`'] };
+  if (pairs[obj]) {
+    const [open, close] = pairs[obj];
+    // Find matching pair
+    let startCol = col, endCol = col;
+    // Search backwards for open
+    let depth = 0;
+    for (let c = col; c >= 0; c--) {
+      if (line[c] === close && c !== col) depth++;
+      if (line[c] === open) { if (depth === 0) { startCol = c; break; } depth--; }
+    }
+    depth = 0;
+    for (let c = col; c < line.length; c++) {
+      if (line[c] === open && c !== col) depth++;
+      if (line[c] === close) { if (depth === 0) { endCol = c; break; } depth--; }
+    }
+    return { row: b.cursor.row, startCol: inner ? startCol + 1 : startCol, endCol: inner ? endCol : endCol + 1 };
+  }
+  return null;
+}
+
+// ============================================================
+// Edit operations
+// ============================================================
+function deleteLine(b, row) {
+  if (b.lines.length === 1) { b.lines[0] = ''; b.cursor.col = 0; return ''; }
+  const removed = b.lines.splice(row, 1)[0];
+  if (b.cursor.row >= b.lines.length) b.cursor.row = b.lines.length - 1;
+  clampCursor(b);
+  return removed;
+}
+
+function joinLines(b) {
+  const { row } = b.cursor;
+  if (row >= b.lines.length - 1) return;
+  const col = b.lines[row].length;
+  b.lines[row] = b.lines[row] + ' ' + b.lines[row + 1].trimStart();
+  b.lines.splice(row + 1, 1);
+  b.cursor.col = col;
+}
+
+function insertAt(b, row, col, text) {
+  const line = b.lines[row];
+  b.lines[row] = line.slice(0, col) + text + line.slice(col);
+}
+
+function deleteRange(b, row, startCol, endCol) {
+  const line = b.lines[row];
+  const deleted = line.slice(startCol, endCol);
+  b.lines[row] = line.slice(0, startCol) + line.slice(endCol);
+  b.cursor.col = startCol;
+  clampCursor(b);
+  return deleted;
+}
+
+function indent(b, row, inc) {
+  const line = b.lines[row];
+  if (inc) {
+    b.lines[row] = '  ' + line;
+  } else {
+    b.lines[row] = line.startsWith('  ') ? line.slice(2) : line.startsWith(' ') ? line.slice(1) : line;
+  }
+}
+
+// ============================================================
+// Search
+// ============================================================
+function doSearch(pattern, direction = 1) {
+  state.search.pattern = pattern;
+  state.search.direction = direction;
+  state.search.matches = [];
+  if (!pattern) return;
+
+  const b = buf();
+  let re;
+  try { re = new RegExp(pattern, 'g'); } catch(e) { showMessage('Invalid regex'); return; }
+
+  for (let r = 0; r < b.lines.length; r++) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(b.lines[r])) !== null) {
+      state.search.matches.push({ row: r, col: m.index, len: m[0].length });
+    }
+  }
+
+  // Find next match from cursor
+  const { row, col } = b.cursor;
+  let best = -1;
+  for (let i = 0; i < state.search.matches.length; i++) {
+    const m = state.search.matches[i];
+    if (direction === 1) {
+      if (m.row > row || (m.row === row && m.col > col)) { best = i; break; }
+    } else {
+      if (m.row < row || (m.row === row && m.col < col)) best = i;
+    }
+  }
+  if (direction === -1 && best === -1 && state.search.matches.length) best = state.search.matches.length - 1;
+  if (best === -1 && state.search.matches.length) best = 0;
+  state.search.current = best;
+  if (best >= 0) {
+    b.cursor.row = state.search.matches[best].row;
+    b.cursor.col = state.search.matches[best].col;
+  } else {
+    showMessage(`Pattern not found: ${pattern}`);
+  }
+  render();
+  highlightSearchMatches();
+}
+
+function searchNext(forward = true) {
+  const { matches } = state.search;
+  if (!matches.length) return;
+  const dir = forward ? 1 : -1;
+  state.search.current = (state.search.current + dir + matches.length) % matches.length;
+  const m = matches[state.search.current];
+  const b = buf();
+  b.cursor.row = m.row;
+  b.cursor.col = m.col;
+  render();
+  highlightSearchMatches();
+  showMessage(`Match ${state.search.current + 1}/${matches.length}`, 1500);
+}
+
+function highlightSearchMatches() {
+  // Remove old
+  document.querySelectorAll('.search-match, .search-match-current').forEach(el => {
+    el.replaceWith(document.createTextNode(el.textContent));
+  });
+  if (!state.search.pattern || !state.search.matches.length) return;
+
+  const b = buf();
+  let re;
+  try { re = new RegExp(state.search.pattern, 'g'); } catch(e) { return; }
+
+  state.search.matches.forEach((m, idx) => {
+    const lineEl = document.getElementById(`L${m.row}`);
+    if (!lineEl) return;
+    // We'll mark the current match line differently
+    if (idx === state.search.current) lineEl.style.outline = '1px solid #f9e2af33';
+    else lineEl.style.outline = '';
+  });
+}
+
+// ============================================================
+// Command mode
+// ============================================================
+function executeCommand(cmd) {
+  cmd = cmd.trim();
+  if (!cmd) return;
+  state.cmdHistory.unshift(cmd);
+  state.cmdHistIdx = -1;
+
+  const b = buf();
+
+  // :N or :N,M
+  if (/^\d+$/.test(cmd)) { gotoLine(b, +cmd); return; }
+  if (/^(\d+),(\d+)d$/.test(cmd)) {
+    const [, s, e] = cmd.match(/^(\d+),(\d+)d$/);
+    saveUndo(); b.modified = true;
+    for (let i = +e; i >= +s; i--) deleteLine(b, i - 1);
+    return;
+  }
+
+  // Substitution: :s/pat/rep/[g]
+  const subMatch = cmd.match(/^(%?)s\/((?:[^\/\\]|\\.)*)\/([^\/]*)\/?([gi]*)$/);
+  if (subMatch) {
+    const [, glob, pat, rep, flags] = subMatch;
+    let re; try { re = new RegExp(pat, flags.includes('g') ? 'g' : ''); } catch(e) { showMessage('Bad regex'); return; }
+    saveUndo(); b.modified = true;
+    let count = 0;
+    const rows = glob === '%' ? b.lines.map((_, i) => i) : [b.cursor.row];
+    rows.forEach(r => {
+      const orig = b.lines[r];
+      b.lines[r] = b.lines[r].replace(re, rep);
+      if (b.lines[r] !== orig) count++;
+    });
+    showMessage(`${count} substitution(s)`);
+    return;
+  }
+
+  switch (cmd) {
+    case 'w': saveBuffer(b); return;
+    case 'q': case 'q!':
+      if (b.modified && cmd !== 'q!') { showMessage('No write since last change (use :q! to override)'); return; }
+      if (state.buffers.length > 1) { state.buffers.splice(state.activeBuffer, 1); state.activeBuffer = Math.max(0, state.activeBuffer - 1); }
+      else { showMessage('Cannot close last buffer'); }
+      break;
+    case 'wq': case 'x': saveBuffer(b).then(() => { render(); }); return;
+    case 'wa': state.buffers.forEach(buf => saveBuffer(buf)); return;
+    case 'noh': case 'nohlsearch': state.search.pattern = ''; state.search.matches = []; break;
+    case 'set number': case 'set nu': state.showLineNumbers = true; break;
+    case 'set nonumber': case 'set nonu': state.showLineNumbers = false; break;
+    case 'set relativenumber': case 'set rnu': state.relativeLine = true; break;
+    case 'set norelativenumber': case 'set nornu': state.relativeLine = false; break;
+    case 'set syntax=on': state.syntaxOn = true; break;
+    case 'set syntax=off': state.syntaxOn = false; break;
+    case 'set expandtab': state.expandTab = true; break;
+    case 'set noexpandtab': state.expandTab = false; break;
+    case 'tabnew': state.buffers.push(createBuffer(`scratch${state.buffers.length}.js`)); state.activeBuffer = state.buffers.length - 1; break;
+    case 'bn': case 'bnext': state.activeBuffer = (state.activeBuffer + 1) % state.buffers.length; break;
+    case 'bp': case 'bprev': state.activeBuffer = (state.activeBuffer - 1 + state.buffers.length) % state.buffers.length; break;
+    case 'e': case 'edit': openFile(); return;
+    default:
+      // :w filename  (save as)
+      if (cmd.startsWith('w ')) { b.name = cmd.slice(2).trim(); b.fileHandle = null; saveBuffer(b); return; }
+      // :e filename — new empty buffer with that name (use :e alone to open file picker)
+      if (cmd.startsWith('e ') || cmd.startsWith('edit ')) { const name = cmd.split(' ')[1]; state.buffers.push(createBuffer(name)); state.activeBuffer = state.buffers.length - 1; break; }
+      // :tabedit / :tabe — open file picker or named buffer
+      if (cmd === 'tabedit' || cmd === 'tabe') { openFile(); return; }
+      if (cmd.startsWith('tabedit ') || cmd.startsWith('tabe ')) { const name = cmd.split(' ')[1] || 'new.js'; state.buffers.push(createBuffer(name)); state.activeBuffer = state.buffers.length - 1; break; }
+      // :set ts=N
+      const tsMatch = cmd.match(/^set\s+(?:tabstop|ts)=(\d+)$/);
+      if (tsMatch) { state.tabSize = +tsMatch[1]; break; }
+      // :colorscheme (ignore)
+      if (cmd.startsWith('colorscheme')) { showMessage('Only one colorscheme available'); break; }
+      showMessage(`Unknown command: ${cmd}`);
+      return;
+  }
+  render();
+}
+
+// ============================================================
+// Mode management
+// ============================================================
+function setMode(mode) {
+  const prev = state.mode;
+  state.mode = mode;
+  const b = buf();
+
+  if (mode === 'NORMAL') {
+    // Clamp cursor when leaving insert
+    if (prev === 'INSERT') {
+      clampCursor(b, false);
+    }
+    state.pendingOp = null;
+    state.pendingCount = '';
+    state.visualStart = null;
+    $cmdline.style.display = 'none';
+  }
+
+  if (mode === 'COMMAND') {
+    $cmdline.style.display = 'block';
+    $cmdline.textContent = ':';
+  }
+
+  if (mode === 'VISUAL' || mode === 'V-LINE' || mode === 'V-BLOCK') {
+    state.visualStart = { ...b.cursor };
+  }
+
+  $code.focus();
+}
+
+// ============================================================
+// Copy/Paste/Delete helpers
+// ============================================================
+function yankLines(b, startRow, endRow) {
+  const lines = b.lines.slice(startRow, endRow + 1);
+  state.register[state.activeReg] = lines.join('\n') + '\n';
+  return lines;
+}
+
+function yankRange(b, row, startCol, endCol) {
+  const text = b.lines[row].slice(startCol, endCol);
+  state.register[state.activeReg] = text;
+  return text;
+}
+
+function pasteAfter(b, text) {
+  const isLineWise = text.endsWith('\n');
+  if (isLineWise) {
+    const linesToInsert = text.slice(0, -1).split('\n');
+    b.lines.splice(b.cursor.row + 1, 0, ...linesToInsert);
+    b.cursor.row++;
+    b.cursor.col = 0;
+    lineFirstNonBlank(b);
+  } else {
+    const col = b.cursor.col + 1;
+    b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, col) + text + b.lines[b.cursor.row].slice(col);
+    b.cursor.col = col + text.length - 1;
+  }
+}
+
+function pasteBefore(b, text) {
+  const isLineWise = text.endsWith('\n');
+  if (isLineWise) {
+    const linesToInsert = text.slice(0, -1).split('\n');
+    b.lines.splice(b.cursor.row, 0, ...linesToInsert);
+    b.cursor.col = 0;
+    lineFirstNonBlank(b);
+  } else {
+    b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, b.cursor.col) + text + b.lines[b.cursor.row].slice(b.cursor.col);
+    b.cursor.col += text.length - 1;
+  }
+}
+
+// ============================================================
+// Main key handler
+// ============================================================
+let cmdBuffer = '';
+let lastF = null; // last f/F/t/T command for ;/,
+
+function handleNormalKey(key, ctrl, shift, alt) {
+  const b = buf();
+  const count = Math.max(1, parseInt(state.pendingCount) || 1);
+
+  // Numeric prefix
+  if (!ctrl && !alt && /^[1-9]$/.test(key) && !state.pendingOp) {
+    state.pendingCount += key;
+    updateStatus(); return;
+  }
+  if (!ctrl && !alt && key === '0' && state.pendingCount) {
+    state.pendingCount += '0';
+    updateStatus(); return;
+  }
+
+  // Operator + motion combos
+  if (state.pendingOp) {
+    const op = state.pendingOp;
+    state.pendingOp = null;
+    state.pendingCount = '';
+    saveUndo();
+
+    // Double operator = line operation
+    if (key === op) {
+      const row = b.cursor.row;
+      if (op === 'd') { const text = yankLines(b, row, Math.min(row + count - 1, b.lines.length - 1)); deleteLine(b, row); showMessage(`${count}dd`); }
+      else if (op === 'y') { yankLines(b, row, Math.min(row + count - 1, b.lines.length - 1)); b.cursor.row = row; showMessage('Yanked'); }
+      else if (op === 'c') { const text = b.lines[row]; b.lines[row] = ''; b.cursor.col = 0; setMode('INSERT'); }
+      else if (op === '>') { for (let r = row; r < Math.min(row + count, b.lines.length); r++) indent(b, r, true); }
+      else if (op === '<') { for (let r = row; r < Math.min(row + count, b.lines.length); r++) indent(b, r, false); }
+      b.modified = true; render(); return;
+    }
+
+    // Text objects: a/i
+    if (key === 'a' || key === 'i') {
+      state.pendingOp = op;
+      state.pendingTextObj = key; // inner/around
+      return;
+    }
+
+    // Motion for operator
+    const startPos = { row: b.cursor.row, col: b.cursor.col };
+    applyMotion(b, key, ctrl, count);
+    const endPos = { row: b.cursor.row, col: b.cursor.col };
+
+    let startRow = Math.min(startPos.row, endPos.row);
+    let endRow = Math.max(startPos.row, endPos.row);
+
+    if (op === 'd' || op === 'c') {
+      if (startRow !== endRow) {
+        yankLines(b, startRow, endRow);
+        for (let r = endRow; r >= startRow + 1; r--) b.lines.splice(r, 1);
+        const remainStart = Math.min(startPos.col, endPos.col);
+        b.lines[startRow] = b.lines[startRow].slice(0, startPos.col < endPos.col ? startPos.col : endPos.col);
+        b.cursor.row = startRow; b.cursor.col = 0;
+      } else {
+        const sc = Math.min(startPos.col, endPos.col);
+        const ec = Math.max(startPos.col, endPos.col) + (op === 'd' ? 1 : 0);
+        yankRange(b, startRow, sc, ec);
+        b.lines[startRow] = b.lines[startRow].slice(0, sc) + b.lines[startRow].slice(ec);
+        b.cursor.col = sc;
+      }
+      clampCursor(b);
+      if (op === 'c') setMode('INSERT');
+    } else if (op === 'y') {
+      if (startRow !== endRow) {
+        yankLines(b, startRow, endRow);
+        b.cursor = { ...startPos };
+      } else {
+        const sc = Math.min(startPos.col, endPos.col);
+        const ec = Math.max(startPos.col, endPos.col) + 1;
+        yankRange(b, startRow, sc, ec);
+        b.cursor = { ...startPos };
+      }
+      showMessage('Yanked');
+    }
+    b.modified = true;
+    render(); return;
+  }
+
+  // Text object completion
+  if (state.pendingTextObj) {
+    const obj = key;
+    const inner = state.pendingTextObj === 'i';
+    const op = state.pendingOp || state.lastPendingOp;
+    state.pendingTextObj = null;
+    state.pendingOp = null;
+
+    saveUndo();
+    const range = getTextObject(b, obj, inner);
+    if (range && op === 'd') {
+      b.lines[range.row] = b.lines[range.row].slice(0, range.startCol) + b.lines[range.row].slice(range.endCol);
+      b.cursor.col = range.startCol;
+      clampCursor(b);
+    } else if (range && op === 'c') {
+      b.lines[range.row] = b.lines[range.row].slice(0, range.startCol) + b.lines[range.row].slice(range.endCol);
+      b.cursor.col = range.startCol;
+      setMode('INSERT');
+    } else if (range && op === 'y') {
+      yankRange(b, range.row, range.startCol, range.endCol);
+      showMessage('Yanked');
+    }
+    b.modified = true;
+    render(); return;
+  }
+
+  // Main normal mode keys
+  switch (key) {
+    // Movement
+    case 'h': case 'ArrowLeft': for(let i=0;i<count;i++) moveH(b,-1); break;
+    case 'l': case 'ArrowRight': for(let i=0;i<count;i++) moveH(b,1); break;
+    case 'j': case 'ArrowDown': for(let i=0;i<count;i++) moveV(b,1); break;
+    case 'k': case 'ArrowUp': for(let i=0;i<count;i++) moveV(b,-1); break;
+    case '0': lineStart(b); break;
+    case '$': for(let i=0;i<count-1;i++) moveV(b,1); lineEnd(b); break;
+    case '^': lineFirstNonBlank(b); break;
+    case 'w': for(let i=0;i<count;i++) wordForward(b,false); break;
+    case 'W': for(let i=0;i<count;i++) wordForward(b,true); break;
+    case 'b': for(let i=0;i<count;i++) wordBack(b,false); break;
+    case 'B': for(let i=0;i<count;i++) wordBack(b,true); break;
+    case 'e': for(let i=0;i<count;i++) wordEnd(b); break;
+    case 'g':
+      if (cmdBuffer === 'g') { gotoLine(b, 1); cmdBuffer = ''; }
+      else { cmdBuffer = 'g'; updateStatus(); return; }
+      break;
+    case 'G': gotoLine(b, count === 1 ? b.lines.length : count); break;
+    case '%': matchingBracket(b); break;
+    case '{': { let r = b.cursor.row - 1; while(r>0 && b.lines[r].trim()!=='') r--; b.cursor.row=Math.max(0,r); clampCursor(b); } break;
+    case '}': { let r = b.cursor.row + 1; while(r<b.lines.length-1 && b.lines[r].trim()!=='') r++; b.cursor.row=Math.min(b.lines.length-1,r); clampCursor(b); } break;
+    case 'H': b.cursor.row = 0; clampCursor(b); break;
+    case 'M': b.cursor.row = Math.floor(b.lines.length / 2); clampCursor(b); break;
+    case 'L': b.cursor.row = b.lines.length - 1; clampCursor(b); break;
+    // f/F/t/T
+    case 'f': case 'F': case 't': case 'T':
+      state.pendingF = key; updateStatus(); return;
+    case ';': if (lastF) applyF(b, lastF.key, lastF.ch, true); break;
+    case ',': if (lastF) applyF(b, lastF.key, lastF.ch, false); break;
+
+    // Insert modes
+    case 'i': setMode('INSERT'); break;
+    case 'I': lineFirstNonBlank(b); setMode('INSERT'); break;
+    case 'a': moveH(b, 1); setMode('INSERT'); break;
+    case 'A': b.cursor.col = b.lines[b.cursor.row].length; setMode('INSERT'); break;
+    case 'o':
+      saveUndo(); b.modified = true;
+      b.lines.splice(b.cursor.row + 1, 0, '');
+      b.cursor.row++;
+      b.cursor.col = 0;
+      autoIndentNewLine(b, b.cursor.row - 1);
+      setMode('INSERT');
+      break;
+    case 'O':
+      saveUndo(); b.modified = true;
+      b.lines.splice(b.cursor.row, 0, '');
+      b.cursor.col = 0;
+      autoIndentNewLine(b, b.cursor.row + 1);
+      setMode('INSERT');
+      break;
+    case 's': saveUndo(); b.modified = true; deleteRange(b, b.cursor.row, b.cursor.col, b.cursor.col + count); setMode('INSERT'); break;
+    case 'S': saveUndo(); b.modified = true; b.lines[b.cursor.row] = ''; b.cursor.col = 0; setMode('INSERT'); break;
+    case 'R': setMode('REPLACE'); break;
+    case 'C': saveUndo(); b.modified = true; { const col = b.cursor.col; yankRange(b, b.cursor.row, col, b.lines[b.cursor.row].length); b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, col); setMode('INSERT'); } break;
+
+    // Delete
+    case 'x': saveUndo(); b.modified = true; { const ch = b.lines[b.cursor.row][b.cursor.col]; deleteRange(b, b.cursor.row, b.cursor.col, b.cursor.col + count); state.register[state.activeReg] = ch; } break;
+    case 'X': saveUndo(); b.modified = true; if(b.cursor.col>0){ const ch = b.lines[b.cursor.row][b.cursor.col-1]; deleteRange(b, b.cursor.row, b.cursor.col-1, b.cursor.col); } break;
+
+    // Operators
+    case 'd': state.pendingOp = 'd'; state.lastPendingOp = 'd'; updateStatus(); return;
+    case 'c': state.pendingOp = 'c'; state.lastPendingOp = 'c'; updateStatus(); return;
+    case 'y': state.pendingOp = 'y'; state.lastPendingOp = 'y'; updateStatus(); return;
+    case '>': state.pendingOp = '>'; updateStatus(); return;
+    case '<': state.pendingOp = '<'; updateStatus(); return;
+
+    // Yank/paste
+    case 'Y': yankLines(b, b.cursor.row, Math.min(b.cursor.row + count - 1, b.lines.length-1)); showMessage('Yanked'); break;
+    case 'p': saveUndo(); b.modified = true; pasteAfter(b, state.register[state.activeReg] || ''); break;
+    case 'P': saveUndo(); b.modified = true; pasteBefore(b, state.register[state.activeReg] || ''); break;
+
+    // Replace char
+    case 'r':
+      state.pendingR = true; updateStatus(); return;
+
+    // Case change
+    case '~': saveUndo(); b.modified = true; {
+      const ch = b.lines[b.cursor.row][b.cursor.col];
+      if (ch) {
+        const toggled = ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase();
+        b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, b.cursor.col) + toggled + b.lines[b.cursor.row].slice(b.cursor.col + 1);
+        moveH(b, 1);
+      }
+    } break;
+
+    // Undo/Redo
+    case 'u': for(let i=0;i<count;i++) undo(b); break;
+
+    // Join
+    case 'J': saveUndo(); b.modified = true; joinLines(b); break;
+
+    // Search
+    case '/':
+    case '?':
+      enterSearchMode(key === '/' ? 1 : -1);
+      return;
+    case 'n': searchNext(state.search.direction === 1); break;
+    case 'N': searchNext(state.search.direction === -1); break;
+    case '*': {
+      // Search for word under cursor
+      const line = b.lines[b.cursor.row];
+      let s = b.cursor.col, e = b.cursor.col;
+      while (s > 0 && /\w/.test(line[s-1])) s--;
+      while (e < line.length && /\w/.test(line[e])) e++;
+      const word = line.slice(s, e);
+      if (word) doSearch(`\\b${word}\\b`, 1);
+      break;
+    }
+    case '#': {
+      const line = b.lines[b.cursor.row];
+      let s = b.cursor.col, e = b.cursor.col;
+      while (s > 0 && /\w/.test(line[s-1])) s--;
+      while (e < line.length && /\w/.test(line[e])) e++;
+      const word = line.slice(s, e);
+      if (word) doSearch(`\\b${word}\\b`, -1);
+      break;
+    }
+
+    // Marks
+    case 'm':
+      state.pendingMark = true; updateStatus(); return;
+    case "'": case '`':
+      state.pendingJumpMark = true; updateStatus(); return;
+
+    // Registers
+    case '"':
+      state.pendingReg = true; updateStatus(); return;
+
+    // Command mode
+    case ':': setMode('COMMAND'); cmdBuffer = ''; return;
+
+    // Visual mode
+    case 'v': setMode('VISUAL'); break;
+    case 'V': setMode('V-LINE'); break;
+
+    // Scroll
+    case 'ctrl+d': { const half = Math.floor(getVisibleLines() / 2); for(let i=0;i<half;i++) moveV(b,1); } break;
+    case 'ctrl+u': { const half = Math.floor(getVisibleLines() / 2); for(let i=0;i<half;i++) moveV(b,-1); } break;
+    case 'ctrl+f': for(let i=0;i<getVisibleLines();i++) moveV(b,1); break;
+    case 'ctrl+b': for(let i=0;i<getVisibleLines();i++) moveV(b,-1); break;
+    case 'ctrl+e': $editor.scrollTop += charH; return;
+    case 'ctrl+y': $editor.scrollTop -= charH; return;
+
+    // Tabs / buffers
+    case 'ctrl+Right': case 'gt': state.activeBuffer = (state.activeBuffer + 1) % state.buffers.length; break;
+    case 'ctrl+Left': case 'gT': state.activeBuffer = (state.activeBuffer - 1 + state.buffers.length) % state.buffers.length; break;
+
+    // zz, zt, zb (center/top/bottom cursor)
+    case 'z':
+      cmdBuffer = 'z'; updateStatus(); return;
+    case 'ctrl+r': for(let i=0;i<count;i++) redo(b); break;
+
+    case 'q':
+      if (state.recordingMacro) { stopMacro(); }
+      else { state.pendingMacroKey = true; updateStatus(); return; }
+      break;
+    case '@':
+      state.pendingPlayMacro = true; updateStatus(); return;
+
+    default: break;
+  }
+
+  cmdBuffer = '';
+  state.pendingCount = '';
+  render();
+}
+
+// Handle pending single-char inputs (f, r, m, etc)
+function handlePendingChar(key) {
+  const b = buf();
+
+  if (state.pendingF) {
+    const fKey = state.pendingF;
+    state.pendingF = null;
+    lastF = { key: fKey, ch: key };
+    applyF(b, fKey, key, true);
+    render(); return true;
+  }
+  if (state.pendingR) {
+    state.pendingR = false;
+    saveUndo(); b.modified = true;
+    b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, b.cursor.col) + key + b.lines[b.cursor.row].slice(b.cursor.col + 1);
+    render(); return true;
+  }
+  if (state.pendingMark) {
+    state.pendingMark = false;
+    state.marks[key] = { buffer: state.activeBuffer, row: b.cursor.row, col: b.cursor.col };
+    showMessage(`Mark '${key}' set`); return true;
+  }
+  if (state.pendingJumpMark) {
+    state.pendingJumpMark = false;
+    const mark = state.marks[key];
+    if (mark) {
+      state.activeBuffer = mark.buffer;
+      const mb = buf();
+      mb.cursor.row = mark.row;
+      mb.cursor.col = mark.col;
+    } else showMessage(`Mark '${key}' not set`);
+    render(); return true;
+  }
+  if (state.pendingReg) {
+    state.pendingReg = false;
+    state.activeReg = key;
+    return true;
+  }
+  if (state.pendingMacroKey) {
+    state.pendingMacroKey = false;
+    if (!state.recordingMacro) { startMacro(key); return true; }
+  }
+  if (state.pendingPlayMacro) {
+    state.pendingPlayMacro = false;
+    playMacro(key); return true;
+  }
+  if (cmdBuffer === 'g') {
+    cmdBuffer = '';
+    if (key === 'g') { gotoLine(b, 1); render(); return true; }
+    if (key === 'e') { /* ge - move to end of prev word */ }
+    if (key === 'd') { doSearch(`\\b${getWordUnderCursor(b)}\\b`, 1); return true; }
+    render(); return true;
+  }
+  if (cmdBuffer === 'z') {
+    cmdBuffer = '';
+    if (key === 'z') { /* center - scrollIntoView already handles */ }
+    render(); return true;
+  }
+  return false;
+}
+
+function applyF(b, fKey, ch, forward) {
+  const dir = 'fFtT'.indexOf(fKey);
+  const isForward = fKey === 'f' || fKey === 't';
+  const till = fKey === 't' || fKey === 'T';
+  const actualForward = forward ? isForward : !isForward;
+  findChar(b, ch, actualForward, till);
+}
+
+function applyMotion(b, key, ctrl, count) {
+  for (let i = 0; i < count; i++) {
+    switch (key) {
+      case 'h': moveH(b, -1); break;
+      case 'l': moveH(b, 1); break;
+      case 'j': moveV(b, 1); break;
+      case 'k': moveV(b, -1); break;
+      case 'w': wordForward(b); break;
+      case 'W': wordForward(b, true); break;
+      case 'b': wordBack(b); break;
+      case 'B': wordBack(b, true); break;
+      case 'e': wordEnd(b); break;
+      case '0': lineStart(b); break;
+      case '$': lineEnd(b); break;
+      case '^': lineFirstNonBlank(b); break;
+      case 'G': gotoLine(b, b.lines.length); break;
+      case 'g': gotoLine(b, 1); break;
+    }
+  }
+}
+
+function getWordUnderCursor(b) {
+  const line = b.lines[b.cursor.row];
+  let s = b.cursor.col, e = b.cursor.col;
+  while (s > 0 && /\w/.test(line[s-1])) s--;
+  while (e < line.length && /\w/.test(line[e])) e++;
+  return line.slice(s, e);
+}
+
+function getVisibleLines() {
+  return Math.floor($editor.clientHeight / (charH || 21));
+}
+
+// ============================================================
+// Insert mode
+// ============================================================
+function handleInsertKey(key, ctrl, shift) {
+  const b = buf();
+
+  if (key === 'Escape') { setMode('NORMAL'); render(); return; }
+  if (ctrl && key === '[') { setMode('NORMAL'); render(); return; }
+  if (key === 'ArrowLeft') { moveH(b,-1); render(); return; }
+  if (key === 'ArrowRight') { moveH(b,1); render(); return; }
+  if (key === 'ArrowUp') { moveV(b,-1); render(); return; }
+  if (key === 'ArrowDown') { moveV(b,1); render(); return; }
+
+  saveUndo();
+  b.modified = true;
+
+  if (key === 'Enter') {
+    const line = b.lines[b.cursor.row];
+    const before = line.slice(0, b.cursor.col);
+    const after = line.slice(b.cursor.col);
+    b.lines[b.cursor.row] = before;
+    b.lines.splice(b.cursor.row + 1, 0, after);
+    b.cursor.row++;
+    b.cursor.col = 0;
+    autoIndentNewLine(b, b.cursor.row - 1);
+  } else if (key === 'Backspace') {
+    if (b.cursor.col > 0) {
+      b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(0, b.cursor.col - 1) + b.lines[b.cursor.row].slice(b.cursor.col);
+      b.cursor.col--;
+    } else if (b.cursor.row > 0) {
+      const col = b.lines[b.cursor.row - 1].length;
+      b.lines[b.cursor.row - 1] += b.lines[b.cursor.row];
+      b.lines.splice(b.cursor.row, 1);
+      b.cursor.row--;
+      b.cursor.col = col;
+    }
+  } else if (key === 'Delete') {
+    const line = b.lines[b.cursor.row];
+    if (b.cursor.col < line.length) {
+      b.lines[b.cursor.row] = line.slice(0, b.cursor.col) + line.slice(b.cursor.col + 1);
+    } else if (b.cursor.row < b.lines.length - 1) {
+      b.lines[b.cursor.row] += b.lines[b.cursor.row + 1];
+      b.lines.splice(b.cursor.row + 1, 1);
+    }
+  } else if (key === 'Tab') {
+    const indent = state.expandTab ? ' '.repeat(state.tabSize) : '\t';
+    insertAt(b, b.cursor.row, b.cursor.col, indent);
+    b.cursor.col += indent.length;
+  } else if (ctrl && key === 'w') {
+    // Delete word back
+    const col = b.cursor.col;
+    let pos = col - 1;
+    const line = b.lines[b.cursor.row];
+    while (pos > 0 && line[pos-1] === ' ') pos--;
+    while (pos > 0 && /\w/.test(line[pos-1])) pos--;
+    b.lines[b.cursor.row] = line.slice(0, pos) + line.slice(col);
+    b.cursor.col = pos;
+  } else if (ctrl && key === 'u') {
+    // Delete to start of line
+    b.lines[b.cursor.row] = b.lines[b.cursor.row].slice(b.cursor.col);
+    b.cursor.col = 0;
+  } else if (key.length === 1) {
+    // Auto-pair
+    const pairs = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`' };
+    const line = b.lines[b.cursor.row];
+    if (pairs[key]) {
+      const closing = pairs[key];
+      b.lines[b.cursor.row] = line.slice(0, b.cursor.col) + key + closing + line.slice(b.cursor.col);
+      b.cursor.col++;
+    } else if (Object.values(pairs).includes(key) && line[b.cursor.col] === key) {
+      // Skip over closing pair
+      b.cursor.col++;
+    } else {
+      insertAt(b, b.cursor.row, b.cursor.col, key);
+      b.cursor.col++;
+    }
+  }
+
+  render();
+}
+
+function autoIndentNewLine(b, prevRow) {
+  const prevLine = b.lines[prevRow] || '';
+  const indentMatch = prevLine.match(/^(\s*)/);
+  const baseIndent = indentMatch ? indentMatch[1] : '';
+  const extraIndent = prevLine.trimEnd().endsWith('{') || prevLine.trimEnd().endsWith(':') ? '  ' : '';
+  b.lines[b.cursor.row] = baseIndent + extraIndent + b.lines[b.cursor.row];
+  b.cursor.col = baseIndent.length + extraIndent.length;
+}
+
+// ============================================================
+// Visual mode
+// ============================================================
+function handleVisualKey(key, ctrl, shift) {
+  const b = buf();
+
+  if (key === 'Escape') { setMode('NORMAL'); render(); return; }
+  if (key === 'v') { setMode(state.mode === 'VISUAL' ? 'NORMAL' : 'VISUAL'); render(); return; }
+  if (key === 'V') { setMode(state.mode === 'V-LINE' ? 'NORMAL' : 'V-LINE'); render(); return; }
+
+  const vs = state.visualStart;
+  if (!vs) return;
+
+  // Movement in visual mode
+  const moved = tryVisualMove(b, key, ctrl);
+
+  if (key === 'd' || key === 'x') {
+    saveUndo(); b.modified = true;
+    const startRow = Math.min(vs.row, b.cursor.row);
+    const endRow = Math.max(vs.row, b.cursor.row);
+    yankLines(b, startRow, endRow);
+    for (let r = endRow; r >= startRow; r--) deleteLine(b, r);
+    b.cursor.row = Math.min(startRow, b.lines.length - 1);
+    clampCursor(b);
+    setMode('NORMAL');
+  } else if (key === 'y') {
+    const startRow = Math.min(vs.row, b.cursor.row);
+    const endRow = Math.max(vs.row, b.cursor.row);
+    yankLines(b, startRow, endRow);
+    b.cursor = { ...vs };
+    setMode('NORMAL');
+    showMessage('Yanked');
+  } else if (key === '>') {
+    saveUndo(); b.modified = true;
+    const startRow = Math.min(vs.row, b.cursor.row);
+    const endRow = Math.max(vs.row, b.cursor.row);
+    for (let r = startRow; r <= endRow; r++) indent(b, r, true);
+    setMode('NORMAL');
+  } else if (key === '<') {
+    saveUndo(); b.modified = true;
+    const startRow = Math.min(vs.row, b.cursor.row);
+    const endRow = Math.max(vs.row, b.cursor.row);
+    for (let r = startRow; r <= endRow; r++) indent(b, r, false);
+    setMode('NORMAL');
+  } else if (key === '~') {
+    saveUndo(); b.modified = true;
+    const startRow = Math.min(vs.row, b.cursor.row);
+    const endRow = Math.max(vs.row, b.cursor.row);
+    for (let r = startRow; r <= endRow; r++) {
+      b.lines[r] = b.lines[r].split('').map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join('');
+    }
+    setMode('NORMAL');
+  }
+
+  render();
+}
+
+function tryVisualMove(b, key, ctrl) {
+  const count = Math.max(1, parseInt(state.pendingCount) || 1);
+  switch (key) {
+    case 'h': case 'ArrowLeft': moveH(b,-1); return true;
+    case 'l': case 'ArrowRight': moveH(b,1); return true;
+    case 'j': case 'ArrowDown': moveV(b,1); return true;
+    case 'k': case 'ArrowUp': moveV(b,-1); return true;
+    case 'w': wordForward(b); return true;
+    case 'b': wordBack(b); return true;
+    case 'e': wordEnd(b); return true;
+    case '0': lineStart(b); return true;
+    case '$': lineEnd(b); return true;
+    case 'G': gotoLine(b, b.lines.length); return true;
+  }
+  return false;
+}
+
+// ============================================================
+// Macros
+// ============================================================
+let macroEvents = [];
+function startMacro(reg) {
+  state.recordingMacro = reg;
+  macroEvents = [];
+  showMessage(`Recording @${reg}`);
+}
+function stopMacro() {
+  state.macros[state.recordingMacro] = macroEvents;
+  showMessage(`Recorded @${state.recordingMacro}`);
+  state.recordingMacro = null;
+  macroEvents = [];
+}
+function playMacro(reg) {
+  const events = state.macros[reg];
+  if (!events) { showMessage(`No macro in @${reg}`); return; }
+  events.forEach(e => processKey(e));
+}
+
+// ============================================================
+// Search mode
+// ============================================================
+let searchBuffer = '';
+let searchDir = 1;
+function enterSearchMode(dir) {
+  searchBuffer = '';
+  searchDir = dir;
+  state.mode = 'SEARCH';
+  $cmdline.style.display = 'block';
+  $cmdline.textContent = dir === 1 ? '/' : '?';
+  $modeInd.textContent = 'SEARCH';
+}
+
+function handleSearchKey(key) {
+  if (key === 'Escape') {
+    state.mode = 'NORMAL';
+    $cmdline.style.display = 'none';
+    updateStatus();
+    return;
+  }
+  if (key === 'Enter') {
+    state.mode = 'NORMAL';
+    $cmdline.style.display = 'none';
+    doSearch(searchBuffer, searchDir);
+    updateStatus();
+    return;
+  }
+  if (key === 'Backspace') {
+    searchBuffer = searchBuffer.slice(0, -1);
+    $cmdline.textContent = (searchDir === 1 ? '/' : '?') + searchBuffer;
+    return;
+  }
+  if (key.length === 1) {
+    searchBuffer += key;
+    $cmdline.textContent = (searchDir === 1 ? '/' : '?') + searchBuffer;
+  }
+}
+
+// ============================================================
+// Command mode input
+// ============================================================
+let commandBuffer = '';
+function handleCommandKey(key) {
+  if (key === 'Escape') {
+    setMode('NORMAL');
+    commandBuffer = '';
+    render(); return;
+  }
+  if (key === 'Enter') {
+    const cmd = commandBuffer;
+    commandBuffer = '';
+    setMode('NORMAL');
+    executeCommand(cmd);
+    render(); return;
+  }
+  if (key === 'Backspace') {
+    commandBuffer = commandBuffer.slice(0, -1);
+    $cmdline.textContent = ':' + commandBuffer;
+    if (commandBuffer === '') setMode('NORMAL');
+    return;
+  }
+  if (key === 'ArrowUp') {
+    state.cmdHistIdx = Math.min(state.cmdHistIdx + 1, state.cmdHistory.length - 1);
+    commandBuffer = state.cmdHistory[state.cmdHistIdx] || '';
+    $cmdline.textContent = ':' + commandBuffer;
+    return;
+  }
+  if (key === 'ArrowDown') {
+    state.cmdHistIdx = Math.max(state.cmdHistIdx - 1, -1);
+    commandBuffer = state.cmdHistIdx >= 0 ? state.cmdHistory[state.cmdHistIdx] : '';
+    $cmdline.textContent = ':' + commandBuffer;
+    return;
+  }
+  if (key.length === 1) {
+    commandBuffer += key;
+    $cmdline.textContent = ':' + commandBuffer;
+  }
+}
+
+// ============================================================
+// Replace mode
+// ============================================================
+function handleReplaceKey(key) {
+  const b = buf();
+  if (key === 'Escape') { setMode('NORMAL'); render(); return; }
+  if (key.length === 1) {
+    saveUndo(); b.modified = true;
+    const line = b.lines[b.cursor.row];
+    if (b.cursor.col < line.length) {
+      b.lines[b.cursor.row] = line.slice(0, b.cursor.col) + key + line.slice(b.cursor.col + 1);
+    } else {
+      b.lines[b.cursor.row] += key;
+    }
+    b.cursor.col++;
+    render();
+  }
+}
+
+// ============================================================
+// Event dispatcher
+// ============================================================
+function processKey(e) {
+  const key = typeof e === 'string' ? e : e.key;
+  const ctrl = typeof e === 'object' ? e.ctrlKey : false;
+  const shift = typeof e === 'object' ? e.shiftKey : false;
+  const alt = typeof e === 'object' ? e.altKey : false;
+
+  const ctrlKey = ctrl ? `ctrl+${key}` : key;
+
+  if (state.recordingMacro && state.mode !== 'COMMAND' && state.mode !== 'SEARCH') {
+    macroEvents.push(e);
+  }
+
+  if (state.mode === 'COMMAND') { handleCommandKey(key); return; }
+  if (state.mode === 'SEARCH') { handleSearchKey(key); return; }
+  if (state.mode === 'INSERT') { handleInsertKey(key, ctrl, shift); return; }
+  if (state.mode === 'REPLACE') { handleReplaceKey(key); return; }
+  if (state.mode === 'VISUAL' || state.mode === 'V-LINE' || state.mode === 'V-BLOCK') { handleVisualKey(key, ctrl, shift); return; }
+
+  // NORMAL mode
+  if (handlePendingChar(key)) return;
+  handleNormalKey(ctrlKey, ctrl, shift, alt);
+}
+
+document.addEventListener('keydown', e => {
+  // Let browser handle Ctrl+C, Ctrl+V etc only if not in editor focus
+  if (document.activeElement !== $code && document.activeElement !== document.body) return;
+
+  const key = e.key;
+  const ctrl = e.ctrlKey || e.metaKey;
+
+  // Ctrl+S — save; Ctrl+O — open
+  if (ctrl && key === 's') { e.preventDefault(); saveBuffer(buf()); return; }
+  if (ctrl && key === 'o') { e.preventDefault(); openFile(); return; }
+
+  // Allow browser shortcuts
+  if (ctrl && (key === 'c' || key === 'v' || key === 'a' || key === 'z' || key === 'f' || key === 'r' || key === '+' || key === '-' || key === '=' || key === 'l')) return;
+  if (key === 'F5' || key === 'F12') return;
+  if (key === 'Tab' && state.mode !== 'INSERT') { e.preventDefault(); return; }
+
+  e.preventDefault();
+  processKey(e);
+});
+
+// ============================================================
+// Mouse click to position cursor
+// ============================================================
+$code.addEventListener('click', e => {
+  const b = buf();
+  const rect = $code.getBoundingClientRect();
+  ensureCharDims();
+
+  // Find which line was clicked by iterating line elements
+  for (let i = 0; i < b.lines.length; i++) {
+    const lineEl = document.getElementById(`L${i}`);
+    if (!lineEl) continue;
+    const lr = lineEl.getBoundingClientRect();
+    if (e.clientY >= lr.top && e.clientY <= lr.bottom) {
+      b.cursor.row = i;
+      // Estimate column
+      const relX = e.clientX - lr.left;
+      const approxCol = Math.floor(relX / charW);
+      b.cursor.col = Math.min(Math.max(0, approxCol), Math.max(0, b.lines[i].length - 1));
+      break;
+    }
+  }
+  clampCursor(b);
+  if (state.mode !== 'NORMAL' && state.mode !== 'INSERT') setMode('NORMAL');
+  render();
+  $code.focus();
+});
+
+// Focus on load
+window.addEventListener('load', () => {
+  ensureCharDims();
+  render();
+  $code.focus();
+  showMessage('Velvet ready  |  Press : for commands, / to search, i to insert  |  hjkl to move', 4000);
+});
+
+window.addEventListener('resize', () => {
+  charW = 0; charH = 0; // reset cached char dims
+  render();
+});
+</script>
+</body>
+</html>

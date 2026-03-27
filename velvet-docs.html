@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velvet — Documentation</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1e1e2e; color: #cdd6f4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.7; }
+  a { color: #89b4fa; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+  nav { width: 240px; background: #181825; border-right: 1px solid #313244; padding: 24px 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  main { margin-left: 240px; padding: 48px 64px; max-width: 900px; }
+
+  /* Nav */
+  .nav-logo { padding: 0 20px 24px; border-bottom: 1px solid #313244; margin-bottom: 16px; }
+  .nav-logo h1 { font-size: 22px; font-weight: 700; color: #cdd6f4; letter-spacing: -0.5px; }
+  .nav-logo span { color: #89b4fa; }
+  .nav-logo p { font-size: 12px; color: #585b70; margin-top: 2px; }
+  .nav-section { padding: 8px 20px 4px; font-size: 11px; font-weight: 600; color: #45475a; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 8px; }
+  nav a { display: block; padding: 5px 20px; color: #a6adc8; font-size: 13.5px; border-left: 2px solid transparent; transition: all 0.1s; }
+  nav a:hover { color: #cdd6f4; background: #1e1e2e; text-decoration: none; }
+  nav a.active { color: #89b4fa; border-left-color: #89b4fa; background: #1e1e2e; }
+
+  /* Content */
+  h1 { font-size: 32px; font-weight: 700; color: #cdd6f4; letter-spacing: -0.5px; margin-bottom: 8px; }
+  h1 span { color: #89b4fa; }
+  .subtitle { color: #a6adc8; font-size: 16px; margin-bottom: 40px; }
+  h2 { font-size: 20px; font-weight: 600; color: #cdd6f4; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #313244; scroll-margin-top: 24px; }
+  h3 { font-size: 14px; font-weight: 600; color: #89b4fa; text-transform: uppercase; letter-spacing: 0.06em; margin: 28px 0 10px; }
+  p { color: #a6adc8; margin-bottom: 12px; }
+
+  /* Key table */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; }
+  thead th { background: #181825; color: #585b70; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 12px; text-align: left; border-bottom: 1px solid #313244; }
+  tbody tr:hover td { background: #2a2a3e; }
+  td { padding: 6px 12px; border-bottom: 1px solid #23233a; vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+
+  /* Keys */
+  kbd { display: inline-block; background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-bottom-width: 2px; border-radius: 4px; padding: 1px 7px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; white-space: nowrap; }
+  kbd + kbd { margin-left: 2px; }
+  .sep { color: #45475a; margin: 0 4px; }
+
+  /* Mode badges */
+  .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; vertical-align: middle; margin-left: 6px; letter-spacing: 0.04em; }
+  .badge-n { background: #89b4fa; color: #1e1e2e; }
+  .badge-i { background: #a6e3a1; color: #1e1e2e; }
+  .badge-v { background: #cba6f7; color: #1e1e2e; }
+  .badge-c { background: #f38ba8; color: #1e1e2e; }
+
+  /* Callout */
+  .callout { background: #1e1e2e; border: 1px solid #313244; border-left: 3px solid #89b4fa; border-radius: 6px; padding: 14px 18px; margin: 20px 0; font-size: 13.5px; color: #a6adc8; }
+  .callout strong { color: #cdd6f4; }
+  .callout.tip { border-left-color: #a6e3a1; }
+  .callout.warn { border-left-color: #f9e2af; }
+
+  /* Code */
+  code { font-family: 'Courier New', monospace; font-size: 13px; background: #313244; color: #cdd6f4; padding: 1px 6px; border-radius: 3px; }
+  pre { background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 16px 20px; overflow-x: auto; margin: 16px 0; }
+  pre code { background: none; padding: 0; font-size: 13px; color: #a6adc8; }
+
+  /* Section divider */
+  .divider { border: none; border-top: 1px solid #313244; margin: 40px 0; }
+
+  /* Mode legend */
+  .mode-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+  .mode-legend div { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #a6adc8; }
+
+  /* Intro hero */
+  .hero { background: #181825; border: 1px solid #313244; border-radius: 8px; padding: 28px 32px; margin-bottom: 40px; }
+  .hero h2 { margin: 0 0 8px; border: none; padding: 0; font-size: 17px; }
+  .hero p { margin: 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- Sidebar -->
+<nav>
+  <div class="nav-logo">
+    <h1><span>V</span>elvet</h1>
+    <p>Browser Vim Editor</p>
+  </div>
+  <div class="nav-section">Getting Started</div>
+  <a href="#overview">Overview</a>
+  <a href="#modes">Modes</a>
+  <div class="nav-section">Navigation</div>
+  <a href="#motion-basic">Basic Motion</a>
+  <a href="#motion-word">Word Motion</a>
+  <a href="#motion-line">Line & File</a>
+  <a href="#motion-search">Search Motion</a>
+  <a href="#motion-marks">Marks & Jumps</a>
+  <div class="nav-section">Editing</div>
+  <a href="#insert">Entering Insert</a>
+  <a href="#operators">Operators</a>
+  <a href="#text-objects">Text Objects</a>
+  <a href="#delete">Delete & Change</a>
+  <a href="#yank-paste">Yank & Paste</a>
+  <a href="#undo">Undo & Redo</a>
+  <a href="#case">Case & Replace</a>
+  <a href="#indent">Indentation</a>
+  <div class="nav-section">Visual Mode</div>
+  <a href="#visual">Visual Selection</a>
+  <div class="nav-section">Commands</div>
+  <a href="#ex-commands">Ex Commands</a>
+  <a href="#substitution">Substitution</a>
+  <a href="#settings">Settings</a>
+  <div class="nav-section">Files & Buffers</div>
+  <a href="#files">File I/O</a>
+  <a href="#buffers">Buffers & Tabs</a>
+  <div class="nav-section">Advanced</div>
+  <a href="#macros">Macros</a>
+  <a href="#registers">Registers</a>
+  <a href="#autopair">Auto-pair</a>
+  <a href="#shortcuts">Shortcuts</a>
+</nav>
+
+<!-- Main content -->
+<main>
+
+  <h1><span>V</span>elvet</h1>
+  <p class="subtitle"><B>Vim Element Layout View Editor Tool (Velvet)</B></p>
+  <p class="subtitle">A modal, Vim-inspired code editor that runs entirely in your browser.</p>
+
+  <div class="hero">
+    <h2>Quick Start</h2>
+    <p>Open <code>velvet</code>, press <kbd>i</kbd> to enter Insert mode and start typing. Press <kbd>Esc</kbd> to return to Normal mode. Use <kbd>:</kbd> to run commands. Press <kbd>/</kbd> to search.</p>
+  </div>
+
+  <!-- Modes -->
+  <h2 id="modes">Modes</h2>
+  <p>Velvet is a <em>modal</em> editor. Every key has a different meaning depending on the active mode.</p>
+
+  <div class="mode-legend">
+    <div><span class="badge badge-n">NORMAL</span> Navigate &amp; operate</div>
+    <div><span class="badge badge-i">INSERT</span> Type text</div>
+    <div><span class="badge badge-v">VISUAL</span> Select text</div>
+    <div><span class="badge badge-c">COMMAND</span> Run ex commands</div>
+  </div>
+
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>i</kbd></td><td>Enter Insert mode before cursor</td></tr>
+      <tr><td><kbd>I</kbd></td><td>Enter Insert mode at first non-blank of line</td></tr>
+      <tr><td><kbd>a</kbd></td><td>Enter Insert mode after cursor</td></tr>
+      <tr><td><kbd>A</kbd></td><td>Enter Insert mode at end of line</td></tr>
+      <tr><td><kbd>o</kbd></td><td>Open new line below, enter Insert mode</td></tr>
+      <tr><td><kbd>O</kbd></td><td>Open new line above, enter Insert mode</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Enter Replace mode (overwrite characters)</td></tr>
+      <tr><td><kbd>v</kbd></td><td>Enter Visual (character) mode</td></tr>
+      <tr><td><kbd>V</kbd></td><td>Enter Visual Line mode</td></tr>
+      <tr><td><kbd>:</kbd></td><td>Enter Command mode</td></tr>
+      <tr><td><kbd>Esc</kbd> <span class="sep">/</span> <kbd>Ctrl</kbd><kbd>[</kbd></td><td>Return to Normal mode from any mode</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Basic Motion -->
+  <h2 id="motion-basic">Basic Motion <span class="badge badge-n">NORMAL</span></h2>
+  <p>All motions accept an optional numeric count prefix, e.g. <kbd>5</kbd><kbd>j</kbd> moves down 5 lines.</p>
+
+  <h3>Character</h3>
+  <table>
+    <thead><tr><th>Key</th><th>Motion</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>h</kbd> <span class="sep">/</span> <kbd>←</kbd></td><td>Left one character</td></tr>
+      <tr><td><kbd>l</kbd> <span class="sep">/</span> <kbd>→</kbd></td><td>Right one character</td></tr>
+      <tr><td><kbd>j</kbd> <span class="sep">/</span> <kbd>↓</kbd></td><td>Down one line</td></tr>
+      <tr><td><kbd>k</kbd> <span class="sep">/</span> <kbd>↑</kbd></td><td>Up one line</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Find on line</h3>
+  <table>
+    <thead><tr><th>Key</th><th>Motion</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>f</kbd><kbd>{char}</kbd></td><td>Forward to next occurrence of <em>char</em> on line</td></tr>
+      <tr><td><kbd>F</kbd><kbd>{char}</kbd></td><td>Backward to prev occurrence of <em>char</em> on line</td></tr>
+      <tr><td><kbd>t</kbd><kbd>{char}</kbd></td><td>Forward till (one before) <em>char</em></td></tr>
+      <tr><td><kbd>T</kbd><kbd>{char}</kbd></td><td>Backward till (one after) <em>char</em></td></tr>
+      <tr><td><kbd>;</kbd></td><td>Repeat last f/F/t/T forward</td></tr>
+      <tr><td><kbd>,</kbd></td><td>Repeat last f/F/t/T backward</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Scroll</h3>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Ctrl</kbd><kbd>d</kbd></td><td>Scroll half-page down</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>u</kbd></td><td>Scroll half-page up</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>f</kbd></td><td>Scroll full page down</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>b</kbd></td><td>Scroll full page up</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>e</kbd></td><td>Scroll view down one line (cursor stays)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>y</kbd></td><td>Scroll view up one line (cursor stays)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Word Motion -->
+  <h2 id="motion-word">Word Motion <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Motion</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>w</kbd></td><td>Forward to start of next word</td></tr>
+      <tr><td><kbd>W</kbd></td><td>Forward to start of next WORD (space-delimited)</td></tr>
+      <tr><td><kbd>b</kbd></td><td>Backward to start of word</td></tr>
+      <tr><td><kbd>B</kbd></td><td>Backward to start of WORD</td></tr>
+      <tr><td><kbd>e</kbd></td><td>Forward to end of word</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Line & File Motion -->
+  <h2 id="motion-line">Line &amp; File Motion <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Motion</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>0</kbd></td><td>Start of line (column 0)</td></tr>
+      <tr><td><kbd>^</kbd></td><td>First non-blank character of line</td></tr>
+      <tr><td><kbd>$</kbd></td><td>End of line</td></tr>
+      <tr><td><kbd>g</kbd><kbd>g</kbd></td><td>Go to first line of file</td></tr>
+      <tr><td><kbd>G</kbd></td><td>Go to last line of file</td></tr>
+      <tr><td><kbd>{N}</kbd><kbd>G</kbd></td><td>Go to line N (e.g. <kbd>42G</kbd>)</td></tr>
+      <tr><td><kbd>{</kbd></td><td>Jump to previous empty line (paragraph back)</td></tr>
+      <tr><td><kbd>}</kbd></td><td>Jump to next empty line (paragraph forward)</td></tr>
+      <tr><td><kbd>%</kbd></td><td>Jump to matching bracket <code>( ) [ ] { }</code></td></tr>
+      <tr><td><kbd>H</kbd></td><td>Jump to top of file</td></tr>
+      <tr><td><kbd>M</kbd></td><td>Jump to middle of file</td></tr>
+      <tr><td><kbd>L</kbd></td><td>Jump to bottom of file</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Search Motion -->
+  <h2 id="motion-search">Search Motion <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>/</kbd><kbd>{pattern}</kbd><kbd>Enter</kbd></td><td>Search forward for regex pattern</td></tr>
+      <tr><td><kbd>?</kbd><kbd>{pattern}</kbd><kbd>Enter</kbd></td><td>Search backward for regex pattern</td></tr>
+      <tr><td><kbd>n</kbd></td><td>Jump to next match (same direction)</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Jump to previous match (opposite direction)</td></tr>
+      <tr><td><kbd>*</kbd></td><td>Search forward for word under cursor</td></tr>
+      <tr><td><kbd>#</kbd></td><td>Search backward for word under cursor</td></tr>
+    </tbody>
+  </table>
+  <div class="callout tip"><strong>Tip:</strong> Patterns use JavaScript regular expressions. Use <code>:noh</code> to clear search highlights.</div>
+
+  <!-- Marks -->
+  <h2 id="motion-marks">Marks &amp; Jumps <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>m</kbd><kbd>{a-z}</kbd></td><td>Set mark at cursor position</td></tr>
+      <tr><td><kbd>'</kbd><kbd>{a-z}</kbd></td><td>Jump to line of mark</td></tr>
+      <tr><td><kbd>`</kbd><kbd>{a-z}</kbd></td><td>Jump to exact position of mark</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+
+  <!-- Insert mode -->
+  <h2 id="insert">Entering Insert Mode <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>i</kbd></td><td>Insert before cursor</td></tr>
+      <tr><td><kbd>I</kbd></td><td>Insert at first non-blank of line</td></tr>
+      <tr><td><kbd>a</kbd></td><td>Append after cursor</td></tr>
+      <tr><td><kbd>A</kbd></td><td>Append at end of line</td></tr>
+      <tr><td><kbd>o</kbd></td><td>Open new line below and insert (auto-indented)</td></tr>
+      <tr><td><kbd>O</kbd></td><td>Open new line above and insert (auto-indented)</td></tr>
+      <tr><td><kbd>s</kbd></td><td>Delete character and insert</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Delete whole line and insert</td></tr>
+      <tr><td><kbd>C</kbd></td><td>Delete to end of line and insert</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Inside Insert Mode <span class="badge badge-i">INSERT</span></h3>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Esc</kbd> <span class="sep">/</span> <kbd>Ctrl</kbd><kbd>[</kbd></td><td>Return to Normal mode</td></tr>
+      <tr><td><kbd>Backspace</kbd></td><td>Delete character before cursor (joins lines at col 0)</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Delete character after cursor</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>New line with auto-indent</td></tr>
+      <tr><td><kbd>Tab</kbd></td><td>Insert tab (spaces if <code>expandtab</code> is set)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>w</kbd></td><td>Delete word before cursor</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>u</kbd></td><td>Delete to start of line</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Operators -->
+  <h2 id="operators">Operators <span class="badge badge-n">NORMAL</span></h2>
+  <p>Operators combine with <strong>motions</strong> or <strong>text objects</strong> to act on a range of text. Doubling the operator key (e.g. <kbd>dd</kbd>) applies it to the current line.</p>
+
+  <table>
+    <thead><tr><th>Operator</th><th>Action</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>d</kbd></td><td>Delete (cut)</td><td><kbd>d</kbd><kbd>w</kbd> — delete word</td></tr>
+      <tr><td><kbd>c</kbd></td><td>Change (delete + insert)</td><td><kbd>c</kbd><kbd>$</kbd> — change to end of line</td></tr>
+      <tr><td><kbd>y</kbd></td><td>Yank (copy)</td><td><kbd>y</kbd><kbd>y</kbd> — yank current line</td></tr>
+      <tr><td><kbd>&gt;</kbd></td><td>Indent right</td><td><kbd>&gt;</kbd><kbd>&gt;</kbd> — indent current line</td></tr>
+      <tr><td><kbd>&lt;</kbd></td><td>Indent left</td><td><kbd>&lt;</kbd><kbd>&lt;</kbd> — de-indent current line</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout"><strong>Composing:</strong> <kbd>d</kbd><kbd>3</kbd><kbd>j</kbd> deletes the current line plus 3 lines below. <kbd>c</kbd><kbd>i</kbd><kbd>{</kbd> changes everything inside the nearest <code>{}</code>.</div>
+
+  <!-- Text Objects -->
+  <h2 id="text-objects">Text Objects <span class="badge badge-n">NORMAL</span></h2>
+  <p>Text objects are used after an operator. <kbd>i</kbd> means <em>inner</em> (excluding delimiters); <kbd>a</kbd> means <em>around</em> (including delimiters).</p>
+
+  <table>
+    <thead><tr><th>Object</th><th>Selects</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>i</kbd><kbd>w</kbd> / <kbd>a</kbd><kbd>w</kbd></td><td>Inner word / word + surrounding space</td></tr>
+      <tr><td><kbd>i</kbd><kbd>(</kbd> / <kbd>a</kbd><kbd>(</kbd></td><td>Inside / around parentheses</td></tr>
+      <tr><td><kbd>i</kbd><kbd>[</kbd> / <kbd>a</kbd><kbd>[</kbd></td><td>Inside / around square brackets</td></tr>
+      <tr><td><kbd>i</kbd><kbd>{</kbd> / <kbd>a</kbd><kbd>{</kbd></td><td>Inside / around curly braces</td></tr>
+      <tr><td><kbd>i</kbd><kbd>"</kbd> / <kbd>a</kbd><kbd>"</kbd></td><td>Inside / around double quotes</td></tr>
+      <tr><td><kbd>i</kbd><kbd>'</kbd> / <kbd>a</kbd><kbd>'</kbd></td><td>Inside / around single quotes</td></tr>
+      <tr><td><kbd>i</kbd><kbd>`</kbd> / <kbd>a</kbd><kbd>`</kbd></td><td>Inside / around backticks</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Delete & Change -->
+  <h2 id="delete">Delete &amp; Change <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>x</kbd></td><td>Delete character under cursor</td></tr>
+      <tr><td><kbd>X</kbd></td><td>Delete character before cursor</td></tr>
+      <tr><td><kbd>d</kbd><kbd>d</kbd></td><td>Delete (cut) current line</td></tr>
+      <tr><td><kbd>D</kbd> / <kbd>C</kbd></td><td>Delete / change to end of line</td></tr>
+      <tr><td><kbd>J</kbd></td><td>Join current line with the line below</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Yank & Paste -->
+  <h2 id="yank-paste">Yank &amp; Paste <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>y</kbd><kbd>y</kbd> / <kbd>Y</kbd></td><td>Yank (copy) current line</td></tr>
+      <tr><td><kbd>p</kbd></td><td>Paste after cursor (or below line for linewise)</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Paste before cursor (or above line for linewise)</td></tr>
+      <tr><td><kbd>"</kbd><kbd>{a-z}</kbd></td><td>Use named register for next yank/delete/paste</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Undo -->
+  <h2 id="undo">Undo &amp; Redo <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>u</kbd></td><td>Undo last change (up to 200 levels)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>r</kbd></td><td>Redo</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Case & Replace -->
+  <h2 id="case">Case &amp; Replace <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>~</kbd></td><td>Toggle case of character under cursor</td></tr>
+      <tr><td><kbd>r</kbd><kbd>{char}</kbd></td><td>Replace character under cursor with <em>char</em></td></tr>
+      <tr><td><kbd>R</kbd></td><td>Enter Replace mode (overwrite until Esc)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Indentation -->
+  <h2 id="indent">Indentation <span class="badge badge-n">NORMAL</span></h2>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>&gt;</kbd><kbd>&gt;</kbd></td><td>Indent current line right (2 spaces)</td></tr>
+      <tr><td><kbd>&lt;</kbd><kbd>&lt;</kbd></td><td>Indent current line left</td></tr>
+      <tr><td><kbd>{N}</kbd><kbd>&gt;</kbd><kbd>&gt;</kbd></td><td>Indent N lines</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+
+  <!-- Visual Mode -->
+  <h2 id="visual">Visual Mode <span class="badge badge-v">VISUAL</span></h2>
+  <p>Enter with <kbd>v</kbd> (character) or <kbd>V</kbd> (line). Move with any motion to extend the selection.</p>
+
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>d</kbd> / <kbd>x</kbd></td><td>Delete selection</td></tr>
+      <tr><td><kbd>y</kbd></td><td>Yank (copy) selection</td></tr>
+      <tr><td><kbd>&gt;</kbd></td><td>Indent selection right</td></tr>
+      <tr><td><kbd>&lt;</kbd></td><td>Indent selection left</td></tr>
+      <tr><td><kbd>~</kbd></td><td>Toggle case of all characters in selection</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Cancel selection, return to Normal</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+
+  <!-- Ex Commands -->
+  <h2 id="ex-commands">Ex Commands <span class="badge badge-c">COMMAND</span></h2>
+  <p>Enter Command mode with <kbd>:</kbd>. Use <kbd>↑</kbd> / <kbd>↓</kbd> to browse command history. Press <kbd>Enter</kbd> to execute, <kbd>Esc</kbd> to cancel.</p>
+
+  <h3>File</h3>
+  <table>
+    <thead><tr><th>Command</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><code>:w</code></td><td>Save current buffer (opens system Save dialog on first save)</td></tr>
+      <tr><td><code>:w {name}</code></td><td>Save as a new filename</td></tr>
+      <tr><td><code>:wa</code></td><td>Save all open buffers</td></tr>
+      <tr><td><code>:wq</code> / <code>:x</code></td><td>Save and close buffer</td></tr>
+      <tr><td><code>:q</code></td><td>Close buffer (fails if unsaved changes)</td></tr>
+      <tr><td><code>:q!</code></td><td>Force close buffer, discarding changes</td></tr>
+      <tr><td><code>:e</code></td><td>Open file picker to load a file</td></tr>
+      <tr><td><code>:e {name}</code></td><td>Create a new empty buffer with the given name</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Navigation</h3>
+  <table>
+    <thead><tr><th>Command</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><code>:{N}</code></td><td>Go to line N</td></tr>
+      <tr><td><code>:noh</code></td><td>Clear search highlights</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Substitution -->
+  <h2 id="substitution">Substitution <span class="badge badge-c">COMMAND</span></h2>
+  <pre><code>:s/{pattern}/{replacement}/[flags]    — substitute on current line
+:%s/{pattern}/{replacement}/[flags]   — substitute in entire file</code></pre>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>g</code></td><td>Replace all occurrences on the line (not just first)</td></tr>
+      <tr><td><code>i</code></td><td>Case-insensitive match</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip"><strong>Example:</strong> <code>:%s/console\.log/logger.debug/g</code> replaces every <code>console.log</code> in the file.</div>
+
+  <h3>Line-range delete</h3>
+  <pre><code>:{start},{end}d    — delete lines from start to end (e.g. :3,7d)</code></pre>
+
+  <!-- Settings -->
+  <h2 id="settings">Settings <span class="badge badge-c">COMMAND</span></h2>
+  <table>
+    <thead><tr><th>Command</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>:set number</code> / <code>:set nu</code></td><td>Show line numbers</td></tr>
+      <tr><td><code>:set nonumber</code> / <code>:set nonu</code></td><td>Hide line numbers</td></tr>
+      <tr><td><code>:set relativenumber</code> / <code>:set rnu</code></td><td>Show relative line numbers</td></tr>
+      <tr><td><code>:set norelativenumber</code> / <code>:set nornu</code></td><td>Disable relative line numbers</td></tr>
+      <tr><td><code>:set syntax=on</code></td><td>Enable syntax highlighting</td></tr>
+      <tr><td><code>:set syntax=off</code></td><td>Disable syntax highlighting</td></tr>
+      <tr><td><code>:set expandtab</code></td><td>Use spaces for <kbd>Tab</kbd> key</td></tr>
+      <tr><td><code>:set noexpandtab</code></td><td>Use real tab characters</td></tr>
+      <tr><td><code>:set tabstop={N}</code> / <code>:set ts={N}</code></td><td>Set tab width (default: 2)</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+
+  <!-- Files & Buffers -->
+  <h2 id="files">File I/O</h2>
+  <p>Velvet uses the <strong>File System Access API</strong> where available (Chrome, Edge). Other browsers fall back to file download (save) and a file input picker (open).</p>
+
+  <table>
+    <thead><tr><th>Method</th><th>Save</th><th>Open</th></tr></thead>
+    <tbody>
+      <tr><td>Chrome / Edge</td><td>Native Save dialog; re-saves to same file on <code>:w</code></td><td>Native Open dialog via <code>:e</code></td></tr>
+      <tr><td>Firefox / Safari</td><td>Triggers a file download</td><td>Hidden <code>&lt;input type="file"&gt;</code> picker</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Keyboard shortcuts</h3>
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Ctrl</kbd><kbd>S</kbd></td><td>Save current buffer (same as <code>:w</code>)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>O</kbd></td><td>Open file picker (same as <code>:e</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Buffers & Tabs -->
+  <h2 id="buffers">Buffers &amp; Tabs</h2>
+  <p>Each open file is a buffer. Buffers are shown as tabs at the top of the editor. Click a tab to switch, or use commands.</p>
+
+  <table>
+    <thead><tr><th>Command / Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><code>:tabnew</code></td><td>Create a new empty buffer</td></tr>
+      <tr><td><code>:tabedit</code> / <code>:tabe</code></td><td>Open file picker in a new tab</td></tr>
+      <tr><td><code>:bn</code> / <code>:bnext</code></td><td>Switch to next buffer</td></tr>
+      <tr><td><code>:bp</code> / <code>:bprev</code></td><td>Switch to previous buffer</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>→</kbd></td><td>Next buffer</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>←</kbd></td><td>Previous buffer</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+
+  <!-- Macros -->
+  <h2 id="macros">Macros <span class="badge badge-n">NORMAL</span></h2>
+  <p>Record a sequence of keystrokes into a register and replay them.</p>
+
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>q</kbd><kbd>{a-z}</kbd></td><td>Start recording macro into register <em>a–z</em></td></tr>
+      <tr><td><kbd>q</kbd></td><td>Stop recording (when a macro is active)</td></tr>
+      <tr><td><kbd>@</kbd><kbd>{a-z}</kbd></td><td>Play back macro from register <em>a–z</em></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip"><strong>Example:</strong> <kbd>q</kbd><kbd>a</kbd> → make edits → <kbd>q</kbd> → <kbd>1</kbd><kbd>0</kbd><kbd>@</kbd><kbd>a</kbd> replays the macro 10 times.</div>
+
+  <!-- Registers -->
+  <h2 id="registers">Registers <span class="badge badge-n">NORMAL</span></h2>
+  <p>Named registers store text independently. By default all operations use the unnamed register <code>"</code>.</p>
+
+  <table>
+    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>"</kbd><kbd>{a-z}</kbd></td><td>Select register for the next yank, delete, or paste</td></tr>
+    </tbody>
+  </table>
+  <div class="callout"><strong>Example:</strong> <kbd>"</kbd><kbd>a</kbd><kbd>y</kbd><kbd>y</kbd> yanks the current line into register <code>a</code>. Then <kbd>"</kbd><kbd>a</kbd><kbd>p</kbd> pastes it.</div>
+
+  <!-- Auto-pair -->
+  <h2 id="autopair">Auto-pair &amp; Smart Typing <span class="badge badge-i">INSERT</span></h2>
+  <p>Velvet automatically inserts matching closing characters and skips over them when you type them.</p>
+
+  <table>
+    <thead><tr><th>Type</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>(</kbd></td><td>Inserts <code>()</code>, cursor between</td></tr>
+      <tr><td><kbd>[</kbd></td><td>Inserts <code>[]</code>, cursor between</td></tr>
+      <tr><td><kbd>{</kbd></td><td>Inserts <code>{}</code>, cursor between</td></tr>
+      <tr><td><kbd>"</kbd></td><td>Inserts <code>""</code>, cursor between</td></tr>
+      <tr><td><kbd>'</kbd></td><td>Inserts <code>''</code>, cursor between</td></tr>
+      <tr><td><kbd>`</kbd></td><td>Inserts <code>``</code>, cursor between</td></tr>
+      <tr><td>Type closing char when already present</td><td>Moves cursor past it (no duplicate)</td></tr>
+    </tbody>
+  </table>
+
+  <p>Auto-indent is applied on <kbd>Enter</kbd>: the new line inherits the indentation of the previous line, with an extra level after <code>{</code> or <code>:</code>.</p>
+
+  <!-- Shortcuts -->
+  <h2 id="shortcuts">All Keyboard Shortcuts at a Glance</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Mode</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Ctrl</kbd><kbd>S</kbd></td><td>Any</td><td>Save file</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>O</kbd></td><td>Any</td><td>Open file</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>d</kbd></td><td>Normal</td><td>Half-page down</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>u</kbd></td><td>Normal</td><td>Half-page up</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>f</kbd></td><td>Normal</td><td>Page down</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>b</kbd></td><td>Normal</td><td>Page up</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>e</kbd></td><td>Normal</td><td>Scroll down (cursor fixed)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>y</kbd></td><td>Normal</td><td>Scroll up (cursor fixed)</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>r</kbd></td><td>Normal</td><td>Redo</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>w</kbd></td><td>Insert</td><td>Delete word before cursor</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>u</kbd></td><td>Insert</td><td>Delete to line start</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>[</kbd></td><td>Insert</td><td>Escape to Normal mode</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>→</kbd></td><td>Normal</td><td>Next buffer/tab</td></tr>
+      <tr><td><kbd>Ctrl</kbd><kbd>←</kbd></td><td>Normal</td><td>Previous buffer/tab</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider">
+  <p style="color:#45475a; font-size:12px; text-align:center; padding-bottom: 48px;">Velvet — a browser-based modal editor</p>
+
+</main>
+</div>
+</body>
+</html>
