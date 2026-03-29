@@ -1,4 +1,4 @@
-# Velvet
+# Velvet (Vim Element Layout View Editor Tool)
 Created by Bala Amavasai &lt;<bala.amavasai@gmail.com>&gt; & Claude Code
 
 A modal, Vim-inspired code editor that runs entirely in your browser — no build step, no server, no dependencies.
