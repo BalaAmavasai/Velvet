@@ -18,7 +18,7 @@ Velvet is a fully self-contained Vim emulator built in plain HTML and JavaScript
 Open `vim-editor.html` directly in your browser. No install required.
 
 ```bash
-git clone https://github.com/your-username/velvet.git
+git clone https://github.com/BalaAmavasai/velvet.git
 open velvet/vim-editor.html
 ```
 
