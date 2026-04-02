@@ -30,7 +30,7 @@ open velvet/vim-editor.html
 
 | File | Description |
 |---|---|
-| `vim-editor.html` | The editor — this is the entire application |
+| `velvet-editor.html` | The editor — this is the entire application |
 | `velvet-docs.html` | Full interactive reference documentation |
 
 ---
